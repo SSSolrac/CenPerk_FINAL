@@ -39,9 +39,27 @@ export function RegistrationCard() {
     setRegisteredMember(null);
 
     try {
+      const normalizedEmail = formData.email.trim().toLowerCase();
+      const normalizedPhone = formData.phone.trim();
+
+      // Fast pre-check so users get a clear message before auth + insert calls.
+      const { data: existingMember, error: existingMemberError } = await supabase
+        .from('loyalty_members')
+        .select('id')
+        .or(`email.eq.${normalizedEmail},phone.eq.${normalizedPhone}`)
+        .maybeSingle();
+
+      if (existingMemberError) {
+        throw existingMemberError;
+      }
+
+      if (existingMember) {
+        throw new Error('An account with this email or phone number already exists.');
+      }
+
       // First, create the auth user with email confirmation disabled
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: formData.email,
+        email: normalizedEmail,
         password: formData.password,
         options: {
           emailRedirectTo: `${window.location.origin}/home`,
@@ -56,6 +74,24 @@ export function RegistrationCard() {
         throw authError;
       }
 
+      // Supabase can return a non-error "obfuscated" user for existing accounts.
+      if (authData.user && Array.isArray(authData.user.identities) && authData.user.identities.length === 0) {
+        throw new Error('This email address is already registered. Please use the Login page.');
+      }
+
+      // If email confirmation is enabled, signUp may not return a session.
+      // Sign in explicitly so the insert can satisfy authenticated RLS policies.
+      if (!authData.session) {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password: formData.password,
+        });
+
+        if (signInError) {
+          throw signInError;
+        }
+      }
+
       // SCRUM-15 (Create member registration API): Using a serverless architecture. This Supabase client-side SDK handles the direct, secure database insertion, replacing the need for a traditional Express routing layer.
       // Direct database insert to loyalty_members (SCRUM-47)
       const { data: newMember, error: insertError } = await supabase
@@ -64,8 +100,8 @@ export function RegistrationCard() {
           {
             first_name: formData.firstName,
             last_name: formData.lastName,
-            email: formData.email,
-            phone: formData.phone,
+            email: normalizedEmail,
+            phone: normalizedPhone,
             points_balance: 0,
             tier: 'Bronze',
           },
@@ -303,4 +339,3 @@ export function RegistrationCard() {
     </div>
   );
 }
-
