@@ -44,5 +44,7 @@ export interface AdminMetrics {
   newMembersLastMonth: number;
   growthRate: number;
   growthSeries: MemberGrowthPoint[];
+  redemptionValuePerPoint: number;
+  monetaryLiability: number;
+  liabilityTrend: { month: string; points: number; monetary: number }[];
 }
-

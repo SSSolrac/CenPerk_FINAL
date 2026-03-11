@@ -7,12 +7,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Badge } from "../../components/ui/badge";
 import type { AppOutletContext } from "../../types/app-context";
 import { loadMemberActivity } from "../../lib/loyalty-supabase";
+import { emailStatement, generateStatementData } from "../../lib/statement";
+import { toast } from "sonner";
 
 export default function PointsActivity() {
   const { user } = useOutletContext<AppOutletContext>();
   const [filterType, setFilterType] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("date-desc");
   const [page, setPage] = useState(1);
+  const [startDate, setStartDate] = useState<string>(() => new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().slice(0, 10));
+  const [endDate, setEndDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const pageSize = 10;
 
   const filteredTransactions = useMemo(
@@ -126,9 +130,14 @@ export default function PointsActivity() {
     URL.revokeObjectURL(url);
   };
 
-  const downloadPdf = async () => {
-    const activity = await loadMemberActivity(user.memberId, user.email);
-    const htmlRows = activity.history
+  const buildStatementHtml = async () => {
+    const statement = await generateStatementData({
+      memberId: user.memberId,
+      memberEmail: user.email,
+      startDate,
+      endDate,
+    });
+    const htmlRows = statement.rows
       .map((item) => {
         const date = new Date(item.date).toLocaleDateString();
         const expiry = item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : "-";
@@ -136,25 +145,25 @@ export default function PointsActivity() {
       })
       .join("");
 
-    const win = window.open("", "_blank", "width=900,height=700");
-    if (!win) return;
-    win.document.write(`
+    return {
+      statement,
+      html: `
       <html>
         <head>
-          <title>Points Statement</title>
+          <title>CentralPerk Loyalty Statement</title>
           <style>
             body { font-family: Arial, sans-serif; padding: 24px; color: #111827; }
-            h1 { margin: 0 0 8px; }
-            p { margin: 4px 0 16px; }
+            .brand { display:flex; justify-content:space-between; align-items:center; background:#1A2B47; color:#fff; padding:12px 16px; border-radius:8px; }
             table { width: 100%; border-collapse: collapse; margin-top: 12px; }
             th, td { border: 1px solid #d1d5db; padding: 8px; text-align: left; font-size: 12px; }
             th { background: #f3f4f6; }
           </style>
         </head>
         <body>
-          <h1>Loyalty Points Statement</h1>
+          <div class="brand"><strong>CentralPerk Loyalty</strong><span>Statement</span></div>
           <p>Member: ${user.fullName} (${user.memberId})</p>
-          <p>Tier: ${activity.balance.tier} | Current Balance: ${activity.balance.points_balance}</p>
+          <p>Period: ${startDate} to ${endDate}</p>
+          <p>Tier: ${statement.tier} | Opening Balance: ${statement.openingBalance} | Closing Balance: ${statement.closingBalance}</p>
           <table>
             <thead>
               <tr>
@@ -165,10 +174,30 @@ export default function PointsActivity() {
           </table>
         </body>
       </html>
-    `);
+    `,
+    };
+  };
+
+  const downloadPdf = async () => {
+    const { html } = await buildStatementHtml();
+
+    const win = window.open("", "_blank", "width=900,height=700");
+    if (!win) return;
+    win.document.write(html);
     win.document.close();
     win.focus();
     win.print();
+  };
+
+  const handleEmailStatement = async () => {
+    try {
+      const { html } = await buildStatementHtml();
+      const pdfBlob = new Blob([html], { type: "application/pdf" });
+      await emailStatement(user.memberId, pdfBlob);
+      toast.success("Statement queued for email delivery.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to email statement.");
+    }
   };
 
   return (
@@ -177,6 +206,10 @@ export default function PointsActivity() {
         <h1 className="text-2xl font-bold text-gray-900">Points Activity</h1>
         <p className="text-gray-500 mt-1">View and track all your points transactions</p>
         <div className="mt-4 flex gap-2">
+          <div className="flex items-center gap-2">
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
+          </div>
           <Button variant="outline" onClick={downloadCsv}>
             <Download className="w-4 h-4 mr-2" />
             Download CSV
@@ -185,6 +218,7 @@ export default function PointsActivity() {
             <Download className="w-4 h-4 mr-2" />
             Download PDF
           </Button>
+          <Button variant="outline" onClick={handleEmailStatement}>Email Statement</Button>
         </div>
       </div>
 

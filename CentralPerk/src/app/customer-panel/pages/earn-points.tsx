@@ -9,8 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { toast } from "sonner";
 import { useOutletContext } from "react-router-dom";
 import type { AppOutletContext } from "../../types/app-context";
-import { calculatePurchasePoints } from "../../lib/loyalty-engine";
-import { awardMemberPoints, loadEarnTasks } from "../../lib/loyalty-supabase";
+import { normalizeTierLabel } from "../../lib/loyalty-engine";
+import { awardMemberPoints, calculateDynamicPurchasePoints, loadEarnTasks } from "../../lib/loyalty-supabase";
 import type { EarnOpportunity } from "../../types/loyalty";
 
 export default function EarnPoints() {
@@ -58,7 +58,10 @@ export default function EarnPoints() {
   const handlePurchase = async () => {
     const amount = parseFloat(purchaseAmount);
     if (!(amount > 0)) return;
-    const pointsEarned = calculatePurchasePoints(amount);
+    const pointsEarned = await calculateDynamicPurchasePoints({
+      amountSpent: amount,
+      tier: normalizeTierLabel(user.tier),
+    });
 
     try {
       setSaving(true);
@@ -85,7 +88,32 @@ export default function EarnPoints() {
   };
 
   const purchaseValue = parseFloat(purchaseAmount || "0");
-  const projectedPointsEarned = purchaseValue > 0 ? calculatePurchasePoints(purchaseValue) : 0;
+  const [projectedPointsEarned, setProjectedPointsEarned] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const compute = async () => {
+      if (!(purchaseValue > 0)) {
+        if (!cancelled) setProjectedPointsEarned(0);
+        return;
+      }
+      try {
+        const next = await calculateDynamicPurchasePoints({
+          amountSpent: purchaseValue,
+          tier: normalizeTierLabel(user.tier),
+        });
+        if (!cancelled) setProjectedPointsEarned(next);
+      } catch {
+        if (!cancelled) setProjectedPointsEarned(0);
+      }
+    };
+
+    compute();
+    return () => {
+      cancelled = true;
+    };
+  }, [purchaseValue, user.tier]);
+
   const projectedPostPurchaseBalance = user.points + projectedPointsEarned;
 
   const getIcon = (iconName: string) => {
@@ -227,6 +255,5 @@ export default function EarnPoints() {
     </div>
   );
 }
-
 
 

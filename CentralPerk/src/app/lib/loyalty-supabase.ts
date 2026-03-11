@@ -6,6 +6,7 @@ import {
   normalizeTierLabel,
   normalizeTierRules,
   resolveTier,
+  type SupportedTier,
   type TierRule,
 } from "./loyalty-engine";
 
@@ -42,6 +43,13 @@ function getTierCap(rules: TierRule[]): number {
 
 const WELCOME_PACKAGE_REASON = "Welcome Package Bonus";
 const WELCOME_PACKAGE_POINTS = 100;
+
+type EarningRule = {
+  tier_label: SupportedTier;
+  peso_per_point: number;
+  multiplier: number;
+  is_active: boolean;
+};
 
 async function grantWelcomePackageForMember(member: AnyRecord, memberPk: { key: string; value: any }) {
   const existingWelcomeRes = await supabase
@@ -148,6 +156,51 @@ export async function fetchTierRules(): Promise<TierRule[]> {
 
   if (error || !data || data.length === 0) return DEFAULT_TIER_RULES;
   return normalizeTierRules(data as TierRule[]);
+}
+
+export async function saveTierRules(rules: TierRule[]): Promise<void> {
+  const normalized = normalizeTierRules(rules);
+  const updates = normalized.map((rule) => ({
+    tier_label: normalizeTierLabel(rule.tier_label),
+    min_points: Math.max(0, Math.floor(Number(rule.min_points) || 0)),
+    is_active: true,
+  }));
+
+  const { error } = await supabase.from("points_rules").upsert(updates, { onConflict: "tier_label" });
+  if (error) throw error;
+}
+
+async function fetchEarningRuleForTier(tier: SupportedTier): Promise<EarningRule> {
+  const { data, error } = await supabase
+    .from("earning_rules")
+    .select("tier_label,peso_per_point,multiplier,is_active")
+    .eq("tier_label", tier)
+    .eq("is_active", true)
+    .order("effective_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) {
+    return { tier_label: tier, peso_per_point: 10, multiplier: 1, is_active: true };
+  }
+
+  return {
+    tier_label: normalizeTierLabel(String(data.tier_label)) as SupportedTier,
+    peso_per_point: Number(data.peso_per_point || 10),
+    multiplier: Number(data.multiplier || 1),
+    is_active: Boolean(data.is_active ?? true),
+  };
+}
+
+export async function calculateDynamicPurchasePoints(input: {
+  amountSpent: number;
+  tier: SupportedTier;
+}): Promise<number> {
+  const amount = Math.max(0, Number(input.amountSpent) || 0);
+  const rule = await fetchEarningRuleForTier(input.tier);
+  const basePoints = Math.floor(amount / Math.max(rule.peso_per_point, 0.01));
+  return Math.max(0, Math.floor(basePoints * Math.max(rule.multiplier, 0.01)));
 }
 
 export async function loadRewardsCatalog(): Promise<Reward[]> {
@@ -345,6 +398,8 @@ export async function loadMemberSnapshot(currentUser: MemberData): Promise<Parti
     fullName: `${refreshedMember.first_name || ""} ${refreshedMember.last_name || ""}`.trim() || currentUser.fullName,
     email: String(refreshedMember.email || currentUser.email),
     phone: String(refreshedMember.phone || currentUser.phone),
+    address: String(refreshedMember.address || currentUser.address || ""),
+    profileImage: String(refreshedMember.profile_photo_url || currentUser.profileImage || ""),
     memberSince: refreshedMember.enrollment_date
       ? new Date(refreshedMember.enrollment_date).toLocaleDateString()
       : currentUser.memberSince,
@@ -419,7 +474,12 @@ export async function awardMemberPoints(input: {
   const rules = await fetchTierRules();
   const tierCap = getTierCap(rules);
   const currentBalance = Math.min(tierCap, Number(member.points_balance ?? 0));
-  const pointsToAdd = Math.max(0, Math.floor(input.points));
+  let pointsToAdd = Math.max(0, Math.floor(input.points));
+  const memberTier = normalizeTierLabel(String(member.tier || "Bronze")) as SupportedTier;
+  if (input.transactionType === "PURCHASE") {
+    const purchaseAmount = Number(input.amountSpent || 0);
+    pointsToAdd = await calculateDynamicPurchasePoints({ amountSpent: purchaseAmount, tier: memberTier });
+  }
   const newBalance = Math.min(tierCap, currentBalance + pointsToAdd);
   const newTier = resolveTier(newBalance, rules);
 
@@ -476,6 +536,12 @@ export async function redeemMemberPoints(input: {
   });
   if (insertRes.error) throw insertRes.error;
 
+  const fifoConsume = await supabase.rpc("loyalty_consume_points_fifo", {
+    p_member_id: pk.value,
+    p_points_to_consume: pointsToDeduct,
+  });
+  if (fifoConsume.error) throw fifoConsume.error;
+
   const updateRes = await supabase
     .from("loyalty_members")
     .update({ points_balance: newBalance, tier: newTier })
@@ -492,6 +558,8 @@ export async function updateMemberProfile(input: {
   lastName: string;
   email: string;
   phone: string;
+  address?: string;
+  profilePhotoUrl?: string;
 }) {
   const member = await findMember(input.memberIdentifier, input.fallbackEmail);
   if (!member) throw new Error("Member not found in loyalty_members.");
@@ -505,6 +573,8 @@ export async function updateMemberProfile(input: {
       last_name: input.lastName,
       email: input.email,
       phone: input.phone,
+      address: input.address ?? null,
+      profile_photo_url: input.profilePhotoUrl ?? null,
     })
     .eq(pk.key, pk.value);
   if (updateRes.error) throw updateRes.error;
@@ -512,3 +582,41 @@ export async function updateMemberProfile(input: {
   return { success: true };
 }
 
+export async function uploadMemberProfilePhoto(memberIdentifier: string, file: File): Promise<string> {
+  const member = await findMember(memberIdentifier);
+  if (!member) throw new Error("Member not found in loyalty_members.");
+
+  const extension = (file.name.split(".").pop() || "jpg").toLowerCase();
+  const path = `${member.member_number || memberIdentifier}/${Date.now()}.${extension}`;
+  const { error: uploadError } = await supabase.storage.from("profile-photos").upload(path, file, {
+    cacheControl: "3600",
+    upsert: true,
+    contentType: file.type,
+  });
+  if (uploadError) throw uploadError;
+
+  const { data } = supabase.storage.from("profile-photos").getPublicUrl(path);
+  if (!data?.publicUrl) throw new Error("Unable to resolve profile photo URL.");
+  return data.publicUrl;
+}
+
+export async function loadTierHistory(memberIdentifier: string, fallbackEmail?: string) {
+  const member = await findMember(memberIdentifier, fallbackEmail);
+  if (!member) throw new Error("Member not found in loyalty_members.");
+  const memberId = Number(member.id ?? member.member_id);
+
+  const { data, error } = await supabase
+    .from("tier_history")
+    .select("id,old_tier,new_tier,changed_at,reason")
+    .eq("member_id", memberId)
+    .order("changed_at", { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return (data || []) as AnyRecord[];
+}
+
+export async function queueExpiryReminderNotifications() {
+  const { data, error } = await supabase.rpc("loyalty_queue_expiry_warning_notifications");
+  if (error) throw error;
+  return Number(data || 0);
+}

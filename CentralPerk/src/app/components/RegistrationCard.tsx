@@ -13,33 +13,6 @@ interface Member {
   createdAt: string;
 }
 
-function parseMemberSuffix(value: string): number | null {
-  if (!value) return null;
-  const match = value.match(/(\d+)$/);
-  if (!match) return null;
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-async function generateMemberNumber(): Promise<string> {
-  const { data, error } = await supabase
-    .from('loyalty_members')
-    .select('member_number')
-    .order('member_number', { ascending: false })
-    .limit(200);
-  if (error) throw error;
-
-  let maxSuffix = 2024000;
-  for (const row of data || []) {
-    const suffix = parseMemberSuffix(String((row as any).member_number || ''));
-    if (suffix !== null && suffix > maxSuffix) {
-      maxSuffix = suffix;
-    }
-  }
-
-  return `ZUS${maxSuffix + 1}`;
-}
-
 export function RegistrationCard() {
   const [formData, setFormData] = useState({
     firstName: '',
@@ -85,12 +58,10 @@ export function RegistrationCard() {
 
       // SCRUM-15 (Create member registration API): Using a serverless architecture. This Supabase client-side SDK handles the direct, secure database insertion, replacing the need for a traditional Express routing layer.
       // Direct database insert to loyalty_members (SCRUM-47)
-      const memberNumber = await generateMemberNumber();
       const { data: newMember, error: insertError } = await supabase
         .from('loyalty_members')
         .insert([
           {
-            member_number: memberNumber,
             first_name: formData.firstName,
             last_name: formData.lastName,
             email: formData.email,
@@ -332,5 +303,4 @@ export function RegistrationCard() {
     </div>
   );
 }
-
 

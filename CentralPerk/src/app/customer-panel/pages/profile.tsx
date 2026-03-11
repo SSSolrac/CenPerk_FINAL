@@ -9,7 +9,8 @@ import { Label } from "../../components/ui/label";
 import { Badge } from "../../components/ui/badge";
 import { Progress } from "../../components/ui/progress";
 import { toast } from "sonner";
-import { updateMemberProfile } from "../../lib/loyalty-supabase";
+import { loadTierHistory, updateMemberProfile, uploadMemberProfilePhoto } from "../../lib/loyalty-supabase";
+import TierHistory from "../../components/TierHistory";
 
 function splitName(fullName: string) {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
@@ -28,16 +29,33 @@ export default function Profile() {
     fullName: user.fullName,
     email: user.email,
     phone: user.phone,
+    address: user.address || "",
     profileImage: user.profileImage,
   });
+  const [tierTimeline, setTierTimeline] = useState<{ id: string; old_tier: string; new_tier: string; changed_at: string; reason?: string }[]>([]);
 
   useEffect(() => {
     setFormData({
       fullName: user.fullName,
       email: user.email,
       phone: user.phone,
+      address: user.address || "",
       profileImage: user.profileImage,
     });
+
+    loadTierHistory(user.memberId, user.email)
+      .then((rows) =>
+        setTierTimeline(
+          rows.map((r) => ({
+            id: String(r.id),
+            old_tier: String(r.old_tier || "Bronze"),
+            new_tier: String(r.new_tier || "Bronze"),
+            changed_at: String(r.changed_at || new Date().toISOString()),
+            reason: r.reason ? String(r.reason) : undefined,
+          }))
+        )
+      )
+      .catch(() => setTierTimeline([]));
   }, [user]);
 
   const handleSave = async () => {
@@ -55,6 +73,8 @@ export default function Profile() {
         lastName,
         email: formData.email,
         phone: formData.phone,
+        address: formData.address,
+        profilePhotoUrl: formData.profileImage,
       });
 
       setUser((prev) => ({
@@ -62,6 +82,7 @@ export default function Profile() {
         fullName: formData.fullName,
         email: formData.email,
         phone: formData.phone,
+        address: formData.address,
         profileImage: formData.profileImage,
       }));
 
@@ -80,6 +101,7 @@ export default function Profile() {
       fullName: user.fullName,
       email: user.email,
       phone: user.phone,
+      address: user.address || "",
       profileImage: user.profileImage,
     });
     setIsEditing(false);
@@ -92,14 +114,14 @@ export default function Profile() {
   const handleImageChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !file.type.startsWith("image/")) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const imageData = typeof reader.result === "string" ? reader.result : "";
-      if (!imageData) return;
-      setFormData((prev) => ({ ...prev, profileImage: imageData }));
-      setUser((prev) => ({ ...prev, profileImage: imageData }));
-    };
-    reader.readAsDataURL(file);
+    uploadMemberProfilePhoto(user.memberId, file)
+      .then((publicUrl) => {
+        setFormData((prev) => ({ ...prev, profileImage: publicUrl }));
+        setUser((prev) => ({ ...prev, profileImage: publicUrl }));
+      })
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : "Photo upload failed.");
+      });
     event.target.value = "";
   };
 
@@ -242,6 +264,16 @@ export default function Profile() {
                   id="phone"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  disabled={!isEditing}
+                  className="mt-2"
+                />
+              </div>
+              <div>
+                <Label htmlFor="address">Address</Label>
+                <Input
+                  id="address"
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                   disabled={!isEditing}
                   className="mt-2"
                 />
@@ -391,6 +423,8 @@ export default function Profile() {
               </div>
             </div>
           </Card>
+
+          <TierHistory timeline={tierTimeline} />
         </div>
       </div>
     </div>

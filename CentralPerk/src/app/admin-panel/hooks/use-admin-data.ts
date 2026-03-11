@@ -119,6 +119,22 @@ export function useAdminData() {
         ? 100
         : 0;
 
+    const redemptionValuePerPoint = 0.01;
+    const monetaryLiability = Number((pointsLiability * redemptionValuePerPoint).toFixed(2));
+    const liabilityTrend = growthSeries.map((point) => {
+      const monthMembers = members.filter((member) => {
+        const joined = getJoinedDate(member);
+        if (!joined) return false;
+        return `${joined.getFullYear()}-${joined.getMonth()}` <= point.key;
+      });
+      const monthPoints = monthMembers.reduce((sum, m) => sum + Number(m.points_balance || 0), 0);
+      return {
+        month: point.label,
+        points: monthPoints,
+        monetary: Number((monthPoints * redemptionValuePerPoint).toFixed(2)),
+      };
+    });
+
     return {
       totalMembers,
       pointsLiability,
@@ -128,9 +144,11 @@ export function useAdminData() {
       newMembersLastMonth,
       growthRate,
       growthSeries,
+      redemptionValuePerPoint,
+      monetaryLiability,
+      liabilityTrend,
     } satisfies AdminMetrics;
   }, [members, redemptions, tierRules]);
 
   return { members, transactions, loading, error, metrics, tierRules, refetch: fetchData };
 }
-

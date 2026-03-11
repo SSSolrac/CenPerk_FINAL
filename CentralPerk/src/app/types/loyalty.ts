@@ -36,6 +36,7 @@ export interface MemberData {
   fullName: string;
   email: string;
   phone: string;
+  address?: string;
   profileImage: string;
   tier: "Bronze" | "Silver" | "Gold";
   memberSince: string;
@@ -52,4 +53,3 @@ export interface MemberData {
   hasDownloadedApp: boolean;
   surveysCompleted: number;
 }
-
