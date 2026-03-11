@@ -20,6 +20,11 @@ import {
 } from './ui/table';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
+import {
+  exportToCSV,
+  exportToPDF,
+  fetchTransactionsForExport,
+} from '../lib/transaction-exports';
 
 interface Transaction {
   id: string;
@@ -38,6 +43,8 @@ export function TransactionHistory({ transactions }: TransactionHistoryProps) {
   const [filter, setFilter] = useState<string>('all');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [currentPage, setCurrentPage] = useState(1);
+  const [isGeneratingCSV, setIsGeneratingCSV] = useState(false);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const itemsPerPage = 10;
 
   // Filter transactions
@@ -63,38 +70,34 @@ export function TransactionHistory({ transactions }: TransactionHistoryProps) {
     setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc');
   };
 
-  const handleDownloadPDF = () => {
-    toast.success('PDF download started!', {
-      description: 'Your transaction history is being prepared.',
-    });
+  const handleDownloadPDF = async () => {
+    try {
+      setIsGeneratingPDF(true);
+      const exportData = await fetchTransactionsForExport();
+      exportToPDF(exportData, `transaction-report-${new Date().toISOString().split('T')[0]}`);
+      toast.success('PDF downloaded successfully!');
+    } catch (error) {
+      toast.error('Unable to generate PDF.', {
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    } finally {
+      setIsGeneratingPDF(false);
+    }
   };
 
-  const handleDownloadCSV = () => {
-    // Create CSV content
-    const headers = ['Date', 'Description', 'Type', 'Points', 'Balance'];
-    const csvContent = [
-      headers.join(','),
-      ...sortedTransactions.map((t) =>
-        [
-          t.date,
-          `"${t.description}"`,
-          t.type,
-          t.type === 'earned' ? t.points : -t.points,
-          t.balance,
-        ].join(',')
-      ),
-    ].join('\n');
-
-    // Create blob and download
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `transaction-history-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-
-    toast.success('CSV downloaded successfully!');
+  const handleDownloadCSV = async () => {
+    try {
+      setIsGeneratingCSV(true);
+      const exportData = await fetchTransactionsForExport();
+      exportToCSV(exportData, `transaction-report-${new Date().toISOString().split('T')[0]}`);
+      toast.success('CSV downloaded successfully!');
+    } catch (error) {
+      toast.error('Unable to generate CSV.', {
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    } finally {
+      setIsGeneratingCSV(false);
+    }
   };
 
   const getTypeBadge = (type: string, points: number) => {
@@ -155,20 +158,22 @@ export function TransactionHistory({ transactions }: TransactionHistoryProps) {
                 variant="outline"
                 size="sm"
                 onClick={handleDownloadPDF}
+                disabled={isGeneratingPDF || isGeneratingCSV}
                 className="gap-2"
               >
                 <FileDown className="w-4 h-4" />
-                PDF
+                {isGeneratingPDF ? 'Generating...' : 'Download PDF'}
               </Button>
 
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleDownloadCSV}
+                disabled={isGeneratingPDF || isGeneratingCSV}
                 className="gap-2"
               >
                 <Download className="w-4 h-4" />
-                CSV
+                {isGeneratingCSV ? 'Generating...' : 'Download CSV'}
               </Button>
             </div>
           </div>
@@ -280,4 +285,3 @@ export function TransactionHistory({ transactions }: TransactionHistoryProps) {
     </motion.div>
   );
 }
-
