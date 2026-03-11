@@ -561,10 +561,13 @@ export async function updateMemberProfile(input: {
   address?: string;
   profilePhotoUrl?: string;
 }) {
-  const member = await findMember(input.memberIdentifier, input.fallbackEmail);
-  if (!member) throw new Error("Member not found in loyalty_members.");
-  const pk = getMemberPk(member);
-  if (!pk) throw new Error("Member primary key is missing.");
+  const authRes = await supabase.auth.getUser();
+  if (authRes.error) throw authRes.error;
+
+  const authEmail = authRes.data.user?.email;
+  if (!authEmail) {
+    throw new Error("Unable to update profile: no authenticated user email found.");
+  }
 
   const updateRes = await supabase
     .from("loyalty_members")
@@ -576,8 +579,10 @@ export async function updateMemberProfile(input: {
       address: input.address ?? null,
       profile_photo_url: input.profilePhotoUrl ?? null,
     })
-    .eq(pk.key, pk.value);
+    .eq("email", authEmail)
+    .select("id");
   if (updateRes.error) throw updateRes.error;
+  if (!updateRes.data?.length) throw new Error("Member not found in loyalty_members.");
 
   return { success: true };
 }
