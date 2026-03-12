@@ -36,6 +36,8 @@ export default function Dashboard() {
     [selectedTier]
   );
   const hasWelcomePackage = user.transactions.some((tx) => tx.description.toLowerCase().includes("welcome package bonus"));
+  const lifetimeRedeemed = user.transactions.filter((tx) => tx.type === "redeemed").reduce((sum, tx) => sum + Math.abs(tx.points), 0);
+  const recentFive = [...user.transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
 
   const loyaltyCapabilities = [
     "Earn points automatically when I make a purchase",
@@ -155,6 +157,12 @@ export default function Dashboard() {
         </Card>
 
         <Card className="p-6">
+          <p className="text-sm text-gray-600 font-medium">Lifetime Redeemed</p>
+          <h2 className="text-3xl font-bold text-gray-900 mt-2">{lifetimeRedeemed.toLocaleString()}</h2>
+          <p className="text-gray-500 text-sm mt-1">points redeemed</p>
+        </Card>
+
+        <Card className="p-6">
           <div className="flex items-center justify-between gap-3 mb-4">
             <div>
               <h3 className="text-xl font-semibold text-gray-900">Tier Progress</h3>
@@ -213,6 +221,23 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+
+      <Card className="p-6">
+        <h3 className="font-semibold text-gray-900 mb-4">Recent Transactions (Last 5)</h3>
+        <div className="space-y-2">
+          {recentFive.map((tx) => (
+            <div key={tx.id} className="flex items-center justify-between border-b border-gray-100 pb-2">
+              <div>
+                <p className="text-sm font-medium text-gray-900">{tx.description}</p>
+                <p className="text-xs text-gray-500">{new Date(tx.date).toLocaleDateString()}</p>
+              </div>
+              <p className={`text-sm font-semibold ${tx.type === "redeemed" ? "text-orange-600" : "text-green-600"}`}>
+                {tx.type === "redeemed" ? "-" : "+"}{tx.points}
+              </p>
+            </div>
+          ))}
+        </div>
+      </Card>
 
       {hasWelcomePackage && (
         <Card className="p-4 border-[#9ed8ff] bg-[#eef8ff]">

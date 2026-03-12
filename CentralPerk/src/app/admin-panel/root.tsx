@@ -4,6 +4,8 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { cn } from "../components/ui/utils";
 import { supabase } from "../../utils/supabase/client";
 import { loadUserNotifications, type AppNotification } from "../lib/notifications";
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+
 
 const navItems = [
   { to: "/admin", label: "Dashboard", icon: Home, end: true },
@@ -37,6 +39,26 @@ export default function AdminRoot() {
 
     return () => {
       supabase.removeChannel(channel);
+    };
+  }, []);
+
+  useEffect(() => {
+    let timeoutRef: ReturnType<typeof setTimeout>;
+
+    const resetTimer = () => {
+      clearTimeout(timeoutRef);
+      timeoutRef = setTimeout(() => {
+        handleLogout().catch(() => {});
+      }, IDLE_TIMEOUT_MS);
+    };
+
+    const events: (keyof WindowEventMap)[] = ["mousemove", "keydown", "click", "scroll", "touchstart"];
+    events.forEach((eventName) => window.addEventListener(eventName, resetTimer, { passive: true }));
+    resetTimer();
+
+    return () => {
+      clearTimeout(timeoutRef);
+      events.forEach((eventName) => window.removeEventListener(eventName, resetTimer));
     };
   }, []);
 

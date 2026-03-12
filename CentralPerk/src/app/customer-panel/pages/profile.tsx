@@ -34,6 +34,9 @@ export default function Profile() {
     profileImage: user.profileImage,
   });
   const [tierTimeline, setTierTimeline] = useState<{ id: string; old_tier: string; new_tier: string; changed_at: string; reason?: string }[]>([]);
+  const [pendingOtp, setPendingOtp] = useState<string | null>(null);
+  const [otpInput, setOtpInput] = useState("");
+  const [pendingSave, setPendingSave] = useState(false);
 
   useEffect(() => {
     setFormData({
@@ -61,11 +64,29 @@ export default function Profile() {
   }, [user]);
 
   const handleSave = async () => {
-    const { firstName, lastName } = splitName(formData.fullName);
-    if (!firstName) {
-      toast.error("Please enter a valid full name.");
+    const emailChanged = formData.email.trim().toLowerCase() !== user.email.trim().toLowerCase();
+    const addressChanged = (formData.address || "").trim() !== (user.address || "").trim();
+    const requiresOtp = emailChanged || addressChanged;
+
+    if (requiresOtp && !pendingSave) {
+      const generatedOtp = `${Math.floor(100000 + Math.random() * 900000)}`;
+      setPendingOtp(generatedOtp);
+      setOtpInput("");
+      toast.info(`OTP sent to your registered channel: ${generatedOtp}`, {
+        description: "Demo mode OTP. Enter this code to confirm secure changes.",
+      });
+      setPendingSave(true);
       return;
     }
+
+    if (requiresOtp) {
+      if (!pendingOtp || otpInput.trim() !== pendingOtp) {
+        toast.error("Invalid OTP. Please try again.");
+        return;
+      }
+    }
+
+    const { firstName, lastName } = splitName(user.fullName);
 
     try {
       await updateMemberProfile({
@@ -74,24 +95,24 @@ export default function Profile() {
         firstName,
         lastName,
         email: formData.email,
-        phone: formData.phone,
-        birthdate: formData.birthdate,
+        phone: user.phone,
+        birthdate: user.birthdate,
         address: formData.address,
         profilePhotoUrl: formData.profileImage,
       });
 
       setUser((prev) => ({
         ...prev,
-        fullName: formData.fullName,
         email: formData.email,
-        phone: formData.phone,
-        birthdate: formData.birthdate,
         address: formData.address,
         profileImage: formData.profileImage,
       }));
 
+      setPendingOtp(null);
+      setOtpInput("");
+      setPendingSave(false);
       toast.success("Profile updated!", {
-        description: "Your changes have been saved successfully.",
+        description: "Your secure changes have been saved successfully.",
       });
       setIsEditing(false);
       await refreshUser();
@@ -109,6 +130,9 @@ export default function Profile() {
       address: user.address || "",
       profileImage: user.profileImage,
     });
+    setPendingOtp(null);
+    setOtpInput("");
+    setPendingSave(false);
     setIsEditing(false);
   };
 
@@ -182,7 +206,7 @@ export default function Profile() {
                   className="border-emerald-200 bg-white text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
                 >
                   <Edit2 className="w-4 h-4 mr-2" />
-                  Edit
+                  Edit (Email/Address)
                 </Button>
               ) : (
                 <div className="flex gap-2">
@@ -248,7 +272,7 @@ export default function Profile() {
                   id="fullName"
                   value={formData.fullName}
                   onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                  disabled={!isEditing}
+                  disabled={true}
                   className="mt-2"
                 />
               </div>
@@ -269,7 +293,7 @@ export default function Profile() {
                   id="phone"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  disabled={!isEditing}
+                  disabled={true}
                   className="mt-2"
                 />
               </div>
@@ -280,10 +304,25 @@ export default function Profile() {
                   type="date"
                   value={formData.birthdate}
                   onChange={(e) => setFormData({ ...formData, birthdate: e.target.value })}
-                  disabled={!isEditing}
+                  disabled={true}
                   className="mt-2"
                 />
               </div>
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                For security, self-service updates allow <strong>email and address only</strong>. Mobile, name, and birthdate are locked.
+              </div>
+              {pendingSave ? (
+                <div>
+                  <Label htmlFor="otp">OTP Confirmation</Label>
+                  <Input
+                    id="otp"
+                    value={otpInput}
+                    onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    placeholder="Enter 6-digit OTP"
+                    className="mt-2"
+                  />
+                </div>
+              ) : null}
               <div>
                 <Label htmlFor="address">Address</Label>
                 <Input

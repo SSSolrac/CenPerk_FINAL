@@ -223,13 +223,29 @@ as $$
 declare
   target_user_id uuid;
 begin
- select id into target_user_id from auth.users where lower(email) = lower(new.email) limit 1;
- 
- if target_user_id is not null then
-   insert into public.notification_outbox(user_id, channel, subject, message)
-   values (target_user_id, 'email', 'Welcome to LoyaltyHub', 'Thank you for joining our loyalty program.');
- end if;
- return new;
+  select id into target_user_id from auth.users where lower(email) = lower(new.email) limit 1;
+
+  if target_user_id is not null then
+    insert into public.notification_outbox(user_id, channel, subject, message)
+    values
+      (
+        target_user_id,
+        'sms',
+        'Welcome',
+        format('Welcome to GREENOVATE Rewards! Your Member ID is %s. You start with 0 points.', coalesce(new.member_number, 'Pending ID'))
+      ),
+      (
+        target_user_id,
+        'email',
+        'Welcome to GREENOVATE Rewards',
+        format(
+          'Hi %s, welcome to GREENOVATE Rewards! Your Member ID is %s. Program basics: earn points on purchases, redeem rewards in-app, and monitor expiry alerts in your dashboard.',
+          coalesce(new.first_name, 'Member'),
+          coalesce(new.member_number, 'Pending ID')
+        )
+      );
+  end if;
+  return new;
 end;
 $$;
 
@@ -636,3 +652,17 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.notification_outbox;
   END IF;
 END $$;
+
+-- ============================================================
+-- ACCEPTANCE HARDENING PATCHES
+-- ============================================================
+
+-- Enforce unique mobile numbers at DB level when phone is provided.
+create unique index if not exists idx_loyalty_members_phone_unique
+on public.loyalty_members (phone)
+where phone is not null and length(trim(phone)) > 0;
+
+create index if not exists idx_earning_rules_active_tier
+on public.earning_rules(tier_label, is_active, effective_at desc);
+
+
