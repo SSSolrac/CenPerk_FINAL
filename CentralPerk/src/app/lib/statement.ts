@@ -17,6 +17,8 @@ export async function generateStatementData(input: {
 }) {
   const start = new Date(input.startDate);
   const end = new Date(input.endDate);
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     throw new Error("Invalid statement date range.");
   }
@@ -24,27 +26,30 @@ export async function generateStatementData(input: {
 
   const activity = await loadMemberActivity(input.memberId, input.memberEmail);
   const history = activity.history
-    .map((r) => ({ ...r, dateObj: new Date(r.date) }))
-    .filter((r) => !Number.isNaN(r.dateObj.getTime()));
-
-  const openingDelta = history
-    .filter((tx) => tx.dateObj < start)
-    .reduce((sum, tx) => sum + Number(tx.points || 0), 0);
+    .map((r) => ({ ...r, dateObj: new Date(r.date), pointsValue: Number(r.points || 0) }))
+    .filter((r) => !Number.isNaN(r.dateObj.getTime()))
+    .sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime());
 
   const periodRows = history
     .filter((tx) => tx.dateObj >= start && tx.dateObj <= end)
-    .sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime())
     .map((tx) => ({
       type: tx.type,
-      points: Number(tx.points || 0),
+      points: tx.pointsValue,
       date: tx.date,
       expiry_date: tx.expiry_date,
       reason: tx.reason,
     })) as StatementRow[];
 
   const currentBalance = Number(activity.balance.points_balance || 0);
-  const openingBalance = currentBalance - (history.reduce((s, tx) => s + Number(tx.points || 0), 0) - openingDelta);
-  const closingBalance = openingBalance + periodRows.reduce((sum, tx) => sum + tx.points, 0);
+  const deltaAfterStart = history
+    .filter((tx) => tx.dateObj >= start)
+    .reduce((sum, tx) => sum + tx.pointsValue, 0);
+  const deltaAfterEnd = history
+    .filter((tx) => tx.dateObj > end)
+    .reduce((sum, tx) => sum + tx.pointsValue, 0);
+
+  const openingBalance = currentBalance - deltaAfterStart;
+  const closingBalance = currentBalance - deltaAfterEnd;
 
   return {
     openingBalance,

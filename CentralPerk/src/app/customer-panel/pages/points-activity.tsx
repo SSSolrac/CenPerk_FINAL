@@ -107,6 +107,21 @@ export default function PointsActivity() {
     }
   };
 
+  const formatStatementType = (value: string) => {
+    const normalized = String(value || "").replaceAll("_", " ").toLowerCase();
+    return normalized
+      .split(" ")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  };
+
+  const formatSignedPoints = (points: number) => {
+    if (points > 0) return `+${points}`;
+    return String(points);
+  };
+
+
   const downloadCsv = async () => {
     try {
       const statement = await generateStatementData({
@@ -121,7 +136,7 @@ export default function PointsActivity() {
           const date = new Date(item.date).toLocaleDateString();
           const reason = `"${String(item.reason || "").replaceAll('"', '""')}"`;
           const expiry = item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : "";
-          return `${date},${item.type},${item.points},${reason},${expiry}`;
+          return `${date},${formatStatementType(item.type)},${formatSignedPoints(item.points)},${reason},${expiry}`;
         }),
       ];
       const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -146,13 +161,15 @@ export default function PointsActivity() {
       startDate,
       endDate,
     });
-    const htmlRows = statement.rows
-      .map((item) => {
-        const date = new Date(item.date).toLocaleDateString();
-        const expiry = item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : "-";
-        return `<tr><td>${date}</td><td>${item.type}</td><td>${item.points}</td><td>${item.reason || ""}</td><td>${expiry}</td></tr>`;
-      })
-      .join("");
+    const htmlRows = statement.rows.length
+      ? statement.rows
+          .map((item) => {
+            const date = new Date(item.date).toLocaleDateString();
+            const expiry = item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : "-";
+            return `<tr><td>${date}</td><td>${formatStatementType(item.type)}</td><td>${formatSignedPoints(item.points)}</td><td>${item.reason || ""}</td><td>${expiry}</td></tr>`;
+          })
+          .join("")
+      : `<tr><td colspan="5" style="text-align:center;color:#6b7280;">No transactions found for the selected period.</td></tr>`;
 
     return {
       statement,
@@ -163,6 +180,7 @@ export default function PointsActivity() {
           <style>
             body { font-family: Arial, sans-serif; padding: 24px; color: #111827; }
             .brand { display:flex; justify-content:space-between; align-items:center; background:#1A2B47; color:#fff; padding:12px 16px; border-radius:8px; }
+            * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             table { width: 100%; border-collapse: collapse; margin-top: 12px; }
             th, td { border: 1px solid #d1d5db; padding: 8px; text-align: left; font-size: 12px; }
             th { background: #f3f4f6; }
