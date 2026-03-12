@@ -16,6 +16,7 @@ create table if not exists public.loyalty_members (
   last_name varchar(100),
   email varchar(255) unique not null,
   phone varchar(20),
+  birthdate date,
   points_balance int default 0,
   tier varchar(20) default 'Bronze',
   enrollment_date date default current_date,
@@ -94,6 +95,10 @@ create table if not exists public.loyalty_member_profile_audit (
   new_data jsonb,
   changed_at timestamptz default now()
 );
+
+-- Compatibility safeguard for existing deployments before birthdate was introduced
+alter table public.loyalty_members
+  add column if not exists birthdate date;
 
 -- ============================================================
 -- INDEXES
@@ -245,6 +250,7 @@ begin
   if (
     old.first_name is distinct from new.first_name or old.last_name is distinct from new.last_name
     or old.email is distinct from new.email or old.phone is distinct from new.phone
+    or old.birthdate is distinct from new.birthdate
     or old.address is distinct from new.address or old.profile_photo_url is distinct from new.profile_photo_url
   ) then
     select u.id into target_user_id from auth.users u where lower(u.email) = lower(new.email) limit 1;

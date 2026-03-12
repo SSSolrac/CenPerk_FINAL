@@ -29,6 +29,7 @@ export default function Profile() {
     fullName: user.fullName,
     email: user.email,
     phone: user.phone,
+    birthdate: user.birthdate || "",
     address: user.address || "",
     profileImage: user.profileImage,
   });
@@ -39,6 +40,7 @@ export default function Profile() {
       fullName: user.fullName,
       email: user.email,
       phone: user.phone,
+      birthdate: user.birthdate || "",
       address: user.address || "",
       profileImage: user.profileImage,
     });
@@ -73,6 +75,7 @@ export default function Profile() {
         lastName,
         email: formData.email,
         phone: formData.phone,
+        birthdate: formData.birthdate,
         address: formData.address,
         profilePhotoUrl: formData.profileImage,
       });
@@ -82,6 +85,7 @@ export default function Profile() {
         fullName: formData.fullName,
         email: formData.email,
         phone: formData.phone,
+        birthdate: formData.birthdate,
         address: formData.address,
         profileImage: formData.profileImage,
       }));
@@ -101,6 +105,7 @@ export default function Profile() {
       fullName: user.fullName,
       email: user.email,
       phone: user.phone,
+      birthdate: user.birthdate || "",
       address: user.address || "",
       profileImage: user.profileImage,
     });
@@ -264,6 +269,17 @@ export default function Profile() {
                   id="phone"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  disabled={!isEditing}
+                  className="mt-2"
+                />
+              </div>
+              <div>
+                <Label htmlFor="birthdate">Birthdate</Label>
+                <Input
+                  id="birthdate"
+                  type="date"
+                  value={formData.birthdate}
+                  onChange={(e) => setFormData({ ...formData, birthdate: e.target.value })}
                   disabled={!isEditing}
                   className="mt-2"
                 />

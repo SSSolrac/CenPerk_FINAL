@@ -45,6 +45,7 @@ export default function AdminMembersPage() {
       const fullName = `${m.first_name} ${m.last_name}`.toLowerCase();
       return (
         m.member_number.toLowerCase().includes(q) ||
+        m.phone.toLowerCase().includes(q) ||
         m.email.toLowerCase().includes(q) ||
         fullName.includes(q)
       );
@@ -72,6 +73,7 @@ export default function AdminMembersPage() {
                 <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Member #</th>
                 <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Name</th>
                 <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Email</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Mobile</th>
                 <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Points</th>
                 <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Joined</th>
                 <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Actions</th>
@@ -83,6 +85,7 @@ export default function AdminMembersPage() {
                   <td className="py-4 px-4 text-sm font-medium text-gray-800">{member.member_number}</td>
                   <td className="py-4 px-4 text-sm text-gray-700">{member.first_name} {member.last_name}</td>
                   <td className="py-4 px-4 text-sm text-gray-600">{member.email}</td>
+                  <td className="py-4 px-4 text-sm text-gray-600">{member.phone}</td>
                   <td className="py-4 px-4 text-sm font-semibold text-gray-800">
                     {(member.points_balance || 0).toLocaleString()}
                   </td>

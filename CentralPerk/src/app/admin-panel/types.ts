@@ -5,6 +5,7 @@ export interface Member {
   first_name: string;
   last_name: string;
   email: string;
+  phone: string;
   enrollment_date: string;
   points_balance?: number;
   tier?: string;
