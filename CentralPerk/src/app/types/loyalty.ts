@@ -36,6 +36,7 @@ export interface MemberData {
   fullName: string;
   email: string;
   phone: string;
+  birthdate?: string;
   address?: string;
   profileImage: string;
   tier: "Bronze" | "Silver" | "Gold";

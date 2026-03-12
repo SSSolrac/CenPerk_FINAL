@@ -395,6 +395,7 @@ export async function loadMemberSnapshot(currentUser: MemberData): Promise<Parti
     fullName: `${refreshedMember.first_name || ""} ${refreshedMember.last_name || ""}`.trim() || currentUser.fullName,
     email: String(refreshedMember.email || currentUser.email),
     phone: String(refreshedMember.phone || currentUser.phone),
+    birthdate: refreshedMember.birthdate ? String(refreshedMember.birthdate) : String(currentUser.birthdate || ""),
     address: String(refreshedMember.address || currentUser.address || ""),
     profileImage: String(refreshedMember.profile_photo_url || currentUser.profileImage || ""),
     memberSince: refreshedMember.enrollment_date
@@ -552,6 +553,7 @@ export async function updateMemberProfile(input: {
   lastName: string;
   email: string;
   phone: string;
+  birthdate?: string;
   address?: string;
   profilePhotoUrl?: string;
 }) {
@@ -570,6 +572,7 @@ export async function updateMemberProfile(input: {
       last_name: input.lastName,
       email: input.email,
       phone: input.phone,
+      birthdate: input.birthdate || null,
       address: input.address ?? null,
       profile_photo_url: input.profilePhotoUrl ?? null,
     })

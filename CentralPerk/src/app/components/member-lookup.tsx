@@ -5,17 +5,17 @@ import { Input } from './ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 
 interface MemberLookupProps {
-  onSearch: (memberId: string) => void;
+  onSearch: (query: string) => void;
   isLoading: boolean;
 }
 
 export function MemberLookup({ onSearch, isLoading }: MemberLookupProps) {
-  const [memberId, setMemberId] = useState('');
+  const [query, setQuery] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (memberId.trim()) {
-      onSearch(memberId.trim());
+    if (query.trim()) {
+      onSearch(query.trim());
     }
   };
 
@@ -27,7 +27,7 @@ export function MemberLookup({ onSearch, isLoading }: MemberLookupProps) {
           Member Lookup
         </CardTitle>
         <CardDescription>
-          Enter your unique member ID to retrieve your points balance and activity
+          Search members by member ID, mobile number, or name
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -36,16 +36,16 @@ export function MemberLookup({ onSearch, isLoading }: MemberLookupProps) {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
             <Input
               type="text"
-              placeholder="Enter Member ID (e.g., MEM001)"
-              value={memberId}
-              onChange={(e) => setMemberId(e.target.value)}
+              placeholder="Try MEM001, 5551234567, or John"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
               className="pl-10"
               disabled={isLoading}
             />
           </div>
           <Button
             type="submit"
-            disabled={isLoading || !memberId.trim()}
+            disabled={isLoading || !query.trim()}
             className="bg-[#1A2B47] hover:bg-[#23385a] text-white px-6"
           >
             {isLoading ? (
