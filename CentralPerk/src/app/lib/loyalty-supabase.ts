@@ -44,7 +44,7 @@ function sanitizePointsBalance(value: unknown): number {
 const WELCOME_PACKAGE_REASON = "Welcome Package Bonus";
 const WELCOME_PACKAGE_POINTS = 100;
 
-type EarningRule = {
+export type EarningRule = {
   tier_label: SupportedTier;
   peso_per_point: number;
   multiplier: number;
@@ -166,6 +166,63 @@ export async function saveTierRules(rules: TierRule[]): Promise<void> {
 
   const { error } = await supabase.from("points_rules").upsert(updates, { onConflict: "tier_label" });
   if (error) throw error;
+}
+
+
+export async function fetchActiveEarningRules(): Promise<EarningRule[]> {
+  const { data, error } = await supabase
+    .from("earning_rules")
+    .select("tier_label,peso_per_point,multiplier,is_active,effective_at")
+    .eq("is_active", true)
+    .order("effective_at", { ascending: false });
+
+  if (error || !data || data.length === 0) {
+    return [
+      { tier_label: "Bronze", peso_per_point: 10, multiplier: 1, is_active: true },
+      { tier_label: "Silver", peso_per_point: 10, multiplier: 1.25, is_active: true },
+      { tier_label: "Gold", peso_per_point: 10, multiplier: 1.5, is_active: true },
+    ];
+  }
+
+  const latestByTier = new Map<SupportedTier, EarningRule>();
+  for (const row of data as AnyRecord[]) {
+    const tier = normalizeTierLabel(String(row.tier_label)) as SupportedTier;
+    if (latestByTier.has(tier)) continue;
+    latestByTier.set(tier, {
+      tier_label: tier,
+      peso_per_point: Number(row.peso_per_point || 10),
+      multiplier: Number(row.multiplier || 1),
+      is_active: Boolean(row.is_active ?? true),
+    });
+  }
+
+  return (["Bronze", "Silver", "Gold"] as SupportedTier[]).map((tier) =>
+    latestByTier.get(tier) || { tier_label: tier, peso_per_point: 10, multiplier: 1, is_active: true }
+  );
+}
+
+export async function saveEarningRules(rules: EarningRule[]): Promise<void> {
+  for (const rawRule of rules) {
+    const tier = normalizeTierLabel(rawRule.tier_label) as SupportedTier;
+    const pesoPerPoint = Math.max(0.01, Number(rawRule.peso_per_point) || 10);
+    const multiplier = Math.max(0.01, Number(rawRule.multiplier) || 1);
+
+    const { error: deactivateError } = await supabase
+      .from("earning_rules")
+      .update({ is_active: false })
+      .eq("tier_label", tier)
+      .eq("is_active", true);
+    if (deactivateError) throw deactivateError;
+
+    const { error: insertError } = await supabase.from("earning_rules").insert({
+      tier_label: tier,
+      peso_per_point: pesoPerPoint,
+      multiplier,
+      is_active: true,
+      effective_at: new Date().toISOString(),
+    });
+    if (insertError) throw insertError;
+  }
 }
 
 async function fetchEarningRuleForTier(tier: SupportedTier): Promise<EarningRule> {
