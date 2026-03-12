@@ -10,12 +10,13 @@
 
 create table if not exists public.loyalty_members (
   id bigserial primary key,
-  member_id bigint,
+  member_id bigint unique,
   member_number varchar(20) unique,
   first_name varchar(100),
   last_name varchar(100),
   email varchar(255) unique not null,
-  phone varchar(20),
+  phone varchar(20) unique,
+  birthdate date,
   points_balance int default 0,
   tier varchar(20) default 'Bronze',
   enrollment_date date default current_date,
@@ -26,13 +27,13 @@ create table if not exists public.loyalty_members (
 
 create table if not exists public.loyalty_transactions (
   id bigserial primary key,
-  transaction_id bigint,
+  transaction_id bigint unique,
   member_id bigint references public.loyalty_members(id) on delete cascade,
   transaction_type varchar(50),
   points int not null,
   amount_spent decimal(10,2) default 0,
   reason text,
-  receipt_id text,
+  receipt_id text unique,
   transaction_date timestamptz default now(),
   expiry_date timestamptz default (now() + interval '1 year')
 );
@@ -94,6 +95,10 @@ create table if not exists public.loyalty_member_profile_audit (
   new_data jsonb,
   changed_at timestamptz default now()
 );
+
+-- Compatibility safeguard for existing deployments before birthdate was introduced
+alter table public.loyalty_members
+  add column if not exists birthdate date;
 
 -- ============================================================
 -- INDEXES
@@ -245,6 +250,7 @@ begin
   if (
     old.first_name is distinct from new.first_name or old.last_name is distinct from new.last_name
     or old.email is distinct from new.email or old.phone is distinct from new.phone
+    or old.birthdate is distinct from new.birthdate
     or old.address is distinct from new.address or old.profile_photo_url is distinct from new.profile_photo_url
   ) then
     select u.id into target_user_id from auth.users u where lower(u.email) = lower(new.email) limit 1;
@@ -384,7 +390,7 @@ values ('Bronze', 10, 1.0, true), ('Silver', 10, 1.25, true), ('Gold', 10, 1.50,
 create table if not exists public.points_lots (
   id bigserial primary key,
   member_id bigint not null references public.loyalty_members(id) on delete cascade,
-  source_transaction_id bigint references public.loyalty_transactions(id) on delete set null,
+  source_transaction_id bigint unique references public.loyalty_transactions(id) on delete set null,
   original_points int not null check (original_points > 0),
   remaining_points int not null check (remaining_points >= 0),
   earned_at timestamptz not null default now(),

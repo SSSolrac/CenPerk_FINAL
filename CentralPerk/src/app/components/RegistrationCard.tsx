@@ -9,6 +9,7 @@ interface Member {
   lastName: string;
   email: string;
   phone: string;
+  birthdate: string;
   currentPointsBalance: number;
   createdAt: string;
 }
@@ -19,6 +20,7 @@ export function RegistrationCard() {
     lastName: '',
     email: '',
     phone: '',
+    birthdate: '',
     password: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -39,33 +41,39 @@ export function RegistrationCard() {
     setRegisteredMember(null);
 
     try {
-      // First, create the auth user with email confirmation disabled
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/home`,
-          data: {
-            first_name: formData.firstName,
-            last_name: formData.lastName,
-          },
-        },
-      });
+      const normalizedEmail = formData.email.trim().toLowerCase();
+      const normalizedPhone = formData.phone.trim();
 
-      if (authError) {
-        throw authError;
+      // Prevent auth user creation when profile data already violates member uniqueness constraints.
+      const { data: existingMember, error: existingMemberError } = await supabase
+        .from('loyalty_members')
+        .select('email,phone')
+        .or(`email.ilike.${normalizedEmail},phone.eq.${normalizedPhone}`)
+        .limit(1)
+        .maybeSingle();
+
+      if (existingMemberError) {
+        throw existingMemberError;
+      }
+
+      if (existingMember) {
+        if (String(existingMember.phone || '') === normalizedPhone) {
+          throw new Error('Phone number already registered');
+        }
+        throw new Error('Email already registered');
       }
 
       // SCRUM-15 (Create member registration API): Using a serverless architecture. This Supabase client-side SDK handles the direct, secure database insertion, replacing the need for a traditional Express routing layer.
-      // Direct database insert to loyalty_members (SCRUM-47)
+      // Insert member first so duplicate phone/email fails before creating auth credentials.
       const { data: newMember, error: insertError } = await supabase
         .from('loyalty_members')
         .insert([
           {
             first_name: formData.firstName,
             last_name: formData.lastName,
-            email: formData.email,
-            phone: formData.phone,
+            email: normalizedEmail,
+            phone: normalizedPhone,
+            birthdate: formData.birthdate,
             points_balance: 0,
             tier: 'Bronze',
           },
@@ -75,6 +83,26 @@ export function RegistrationCard() {
 
       if (insertError) {
         throw insertError;
+      }
+
+      // Create auth user only after member profile insert succeeds.
+      const { error: signUpError } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password: formData.password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/home`,
+          data: {
+            first_name: formData.firstName,
+            last_name: formData.lastName,
+            birthdate: formData.birthdate,
+          },
+        },
+      });
+
+      if (signUpError) {
+        // Best-effort rollback for profile row if auth signup fails.
+        await supabase.from('loyalty_members').delete().eq('id', newMember.id);
+        throw signUpError;
       }
 
       const welcomeResult = await ensureWelcomePackage(newMember.member_number, newMember.email);
@@ -95,6 +123,7 @@ export function RegistrationCard() {
         lastName: newMember.last_name,
         email: newMember.email,
         phone: newMember.phone,
+        birthdate: formData.birthdate,
         currentPointsBalance: memberPointsBalance,
         createdAt: newMember.enrollment_date,
       });
@@ -105,6 +134,7 @@ export function RegistrationCard() {
         lastName: '',
         email: '',
         phone: '',
+        birthdate: '',
         password: '',
       });
 
@@ -272,6 +302,22 @@ export function RegistrationCard() {
               </div>
             </div>
 
+            {/* Birthdate field - full width */}
+            <div>
+              <label htmlFor="birthdate" className="block mb-2 text-gray-700 font-medium">
+                Birthdate
+              </label>
+              <input
+                type="date"
+                id="birthdate"
+                name="birthdate"
+                value={formData.birthdate}
+                onChange={handleChange}
+                className="w-full px-4 py-3 bg-[#dbe4f2] rounded-xl border border-transparent focus:outline-none focus:ring-2 focus:ring-[#1bb9d3] focus:border-transparent transition-all"
+                required
+              />
+            </div>
+
             {/* Password field - full width */}
             <div>
               <label htmlFor="password" className="block mb-2 text-gray-700 font-medium">
@@ -303,4 +349,3 @@ export function RegistrationCard() {
     </div>
   );
 }
-
