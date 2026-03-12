@@ -34,6 +34,12 @@ export default function PointsActivity() {
     () =>
       [...user.transactions]
         .filter((t) => (filterType === "all" ? true : t.type === filterType))
+        .filter((t) => {
+          const txDate = new Date(t.date).getTime();
+          const start = startDate ? new Date(`${startDate}T00:00:00`).getTime() : Number.NEGATIVE_INFINITY;
+          const end = endDate ? new Date(`${endDate}T23:59:59`).getTime() : Number.POSITIVE_INFINITY;
+          return txDate >= start && txDate <= end;
+        })
         .sort((a, b) => {
           if (sortBy === "date-desc") return new Date(b.date).getTime() - new Date(a.date).getTime();
           if (sortBy === "date-asc") return new Date(a.date).getTime() - new Date(b.date).getTime();
@@ -41,7 +47,7 @@ export default function PointsActivity() {
           if (sortBy === "points-asc") return a.points - b.points;
           return 0;
         }),
-    [user.transactions, filterType, sortBy]
+    [user.transactions, filterType, sortBy, startDate, endDate]
   );
 
   const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize));
@@ -378,6 +384,7 @@ export default function PointsActivity() {
                 <Badge className={getTypeColor(transaction.type)} variant="outline">
                   {transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
                 </Badge>
+                <p className="text-xs text-gray-500 mt-1">Balance after: {transaction.balance.toLocaleString()}</p>
               </div>
             </div>
           ))}

@@ -8,6 +8,7 @@ export default function AdminMembersPage() {
   const { members, loading, error, refetch } = useAdminData();
   const [query, setQuery] = useState("");
   const [awardingMember, setAwardingMember] = useState<string | null>(null);
+  const [selectedMember, setSelectedMember] = useState<(typeof members)[number] | null>(null);
 
   const handleManualAward = async (memberNumber: string) => {
     const pointsInput = window.prompt("Enter points to award:");
@@ -19,7 +20,11 @@ export default function AdminMembersPage() {
       return;
     }
 
-    const reason = window.prompt("Enter reason for manual award:", "Manual admin adjustment") || "Manual admin adjustment";
+    const reason = window.prompt("Enter reason for manual award (required):", "")?.trim();
+    if (!reason) {
+      toast.error("Reason is required to award points.");
+      return;
+    }
 
     try {
       setAwardingMember(memberNumber);
@@ -64,6 +69,23 @@ export default function AdminMembersPage() {
 
       <MemberLookup onSearch={setQuery} isLoading={loading} />
 
+      {selectedMember ? (
+        <div className="bg-[#f8fcff] rounded-xl p-5 border border-[#9ed8ff]">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">Member Profile</h2>
+            <button type="button" onClick={() => setSelectedMember(null)} className="text-sm text-[#1A2B47]">Close</button>
+          </div>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+            <p><span className="font-semibold">Member ID:</span> {selectedMember.member_number}</p>
+            <p><span className="font-semibold">Name:</span> {selectedMember.first_name} {selectedMember.last_name}</p>
+            <p><span className="font-semibold">Mobile:</span> {selectedMember.phone}</p>
+            <p><span className="font-semibold">Email:</span> {selectedMember.email}</p>
+            <p><span className="font-semibold">Points:</span> {(selectedMember.points_balance || 0).toLocaleString()}</p>
+            <p><span className="font-semibold">Tier:</span> {selectedMember.tier || "Bronze"}</p>
+          </div>
+        </div>
+      ) : null}
+
       <div className="bg-white rounded-xl p-6 border border-[#9ed8ff]">
         <h2 className="text-xl font-semibold text-gray-900 mb-6">Members</h2>
         <div className="overflow-x-auto">
@@ -93,14 +115,23 @@ export default function AdminMembersPage() {
                     {new Date(member.enrollment_date).toLocaleDateString()}
                   </td>
                   <td className="py-4 px-4">
-                    <button
-                      type="button"
-                      onClick={() => handleManualAward(member.member_number)}
-                      disabled={awardingMember === member.member_number}
-                      className="rounded-md bg-[#00A3AD] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#08939c] disabled:opacity-60"
-                    >
-                      {awardingMember === member.member_number ? "Awarding..." : "Manual Award"}
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMember(member)}
+                        className="rounded-md border border-[#1A2B47] px-3 py-1.5 text-xs font-semibold text-[#1A2B47] hover:bg-[#f5f7fb]"
+                      >
+                        View Profile
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleManualAward(member.member_number)}
+                        disabled={awardingMember === member.member_number}
+                        className="rounded-md bg-[#00A3AD] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#08939c] disabled:opacity-60"
+                      >
+                        {awardingMember === member.member_number ? "Awarding..." : "Manual Award"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

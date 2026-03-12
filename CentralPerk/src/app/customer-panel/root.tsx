@@ -13,6 +13,8 @@ import { supabase } from "../../utils/supabase/client";
 import { clearStoredAuth } from "../auth/auth";
 
 const USER_STORAGE_KEY = "points-dashboard-user-v1";
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+
 
 const DEFAULT_MEMBER: MemberData = {
   memberId: "",
@@ -118,6 +120,26 @@ export default function Root() {
     { name: "Rewards", href: `${basePath}/rewards`, icon: Award },
     { name: "Profile", href: `${basePath}/profile`, icon: User },
   ];
+
+  useEffect(() => {
+    let timeoutRef: ReturnType<typeof setTimeout>;
+
+    const resetTimer = () => {
+      clearTimeout(timeoutRef);
+      timeoutRef = setTimeout(() => {
+        handleLogout().catch(() => {});
+      }, IDLE_TIMEOUT_MS);
+    };
+
+    const events: (keyof WindowEventMap)[] = ["mousemove", "keydown", "click", "scroll", "touchstart"];
+    events.forEach((eventName) => window.addEventListener(eventName, resetTimer, { passive: true }));
+    resetTimer();
+
+    return () => {
+      clearTimeout(timeoutRef);
+      events.forEach((eventName) => window.removeEventListener(eventName, resetTimer));
+    };
+  }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();

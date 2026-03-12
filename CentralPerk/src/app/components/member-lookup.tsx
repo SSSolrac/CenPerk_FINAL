@@ -12,6 +12,11 @@ interface MemberLookupProps {
 export function MemberLookup({ onSearch, isLoading }: MemberLookupProps) {
   const [query, setQuery] = useState('');
 
+  const handleInputChange = (value: string) => {
+    setQuery(value);
+    onSearch(value.trim());
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (query.trim()) {
@@ -38,7 +43,7 @@ export function MemberLookup({ onSearch, isLoading }: MemberLookupProps) {
               type="text"
               placeholder="Try MEM001, 5551234567, or John"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => handleInputChange(e.target.value)}
               className="pl-10"
               disabled={isLoading}
             />
