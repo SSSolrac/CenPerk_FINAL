@@ -662,7 +662,56 @@ create unique index if not exists idx_loyalty_members_phone_unique
 on public.loyalty_members (phone)
 where phone is not null and length(trim(phone)) > 0;
 
-create index if not exists idx_earning_rules_active_tier
-on public.earning_rules(tier_label, is_active, effective_at desc);
+-- Earning rules (default 1 point per ₱10 spent, tier-specific configurable rates).
+create table if not exists public.earning_rules (
+  id bigserial primary key,
+  tier_label varchar(20) not null check (tier_label in ('Bronze','Silver','Gold')),
+  peso_per_point numeric(10,2) not null default 10,
+  multiplier numeric(10,2) not null default 1,
+  is_active boolean not null default true,
+  effective_at timestamptz not null default now()
+);
 
+create index if not exists idx_earning_rules_active_tier on public.earning_rules(tier_label, is_active, effective_at desc);
 
+insert into public.earning_rules (tier_label, peso_per_point, multiplier, is_active)
+values
+  ('Bronze', 10, 1, true),
+  ('Silver', 10, 1.25, true),
+  ('Gold', 10, 1.5, true)
+on conflict do nothing;
+
+-- Upgrade welcome notifications to include SMS + member ID + program details.
+create or replace function public.loyalty_queue_welcome_notifications()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  target_user_id uuid;
+begin
+  select id into target_user_id from auth.users where lower(email) = lower(new.email) limit 1;
+
+  if target_user_id is not null then
+    insert into public.notification_outbox(user_id, channel, subject, message)
+    values
+      (
+        target_user_id,
+        'sms',
+        'Welcome',
+        format('Welcome to GREENOVATE Rewards! Your Member ID is %s. You start with 0 points.', coalesce(new.member_number, 'Pending ID'))
+      ),
+      (
+        target_user_id,
+        'email',
+        'Welcome to GREENOVATE Rewards',
+        format(
+          'Hi %s, welcome to GREENOVATE Rewards! Your Member ID is %s. Program basics: earn points on purchases, redeem rewards in-app, and monitor expiry alerts in your dashboard.',
+          coalesce(new.first_name, 'Member'),
+          coalesce(new.member_number, 'Pending ID')
+        )
+      );
+  end if;
+  return new;
+end;
+$$;
