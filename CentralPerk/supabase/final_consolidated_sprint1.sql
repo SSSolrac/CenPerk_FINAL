@@ -15,7 +15,7 @@ create table if not exists public.loyalty_members (
   first_name varchar(100),
   last_name varchar(100),
   email varchar(255) unique not null,
-  phone varchar(20) unique,
+  phone varchar(20),
   birthdate date,
   points_balance int default 0,
   tier varchar(20) default 'Bronze',

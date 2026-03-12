@@ -41,8 +41,19 @@ export function RegistrationCard() {
     setRegisteredMember(null);
 
     try {
-      const normalizedEmail = formData.email.trim().toLowerCase();
-      const normalizedPhone = formData.phone.trim();
+      // First, create the auth user with email confirmation disabled
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/home`,
+          data: {
+            first_name: formData.firstName,
+            last_name: formData.lastName,
+            birthdate: formData.birthdate,
+          },
+        },
+      });
 
       // Prevent auth user creation when profile data already violates member uniqueness constraints.
       const { data: existingMember, error: existingMemberError } = await supabase
@@ -71,8 +82,8 @@ export function RegistrationCard() {
           {
             first_name: formData.firstName,
             last_name: formData.lastName,
-            email: normalizedEmail,
-            phone: normalizedPhone,
+            email: formData.email,
+            phone: formData.phone,
             birthdate: formData.birthdate,
             points_balance: 0,
             tier: 'Bronze',
