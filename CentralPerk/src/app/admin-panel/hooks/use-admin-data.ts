@@ -9,6 +9,7 @@ export function useAdminData() {
   const [redemptions, setRedemptions] = useState<LoyaltyTransaction[]>([]);
   const [transactions, setTransactions] = useState<LoyaltyTransaction[]>([]);
   const [tierRules, setTierRules] = useState<TierRule[]>([]);
+  const [redemptionValuePerPoint, setRedemptionValuePerPoint] = useState<number>(0.01);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,10 +43,24 @@ export function useAdminData() {
 
       const rules = await fetchTierRules();
 
+      const { data: redemptionSettingsData, error: redemptionSettingsError } = await supabase
+        .from("redemption_settings")
+        .select("redemption_value_per_point")
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
       setMembers((membersData || []) as Member[]);
       setRedemptions(redemptionsError ? [] : ((redemptionsData || []) as LoyaltyTransaction[]));
       setTransactions(transactionsError ? [] : ((transactionsData || []) as LoyaltyTransaction[]));
       setTierRules(rules);
+      if (!redemptionSettingsError && redemptionSettingsData?.redemption_value_per_point !== undefined) {
+        const parsedValue = Number(redemptionSettingsData.redemption_value_per_point);
+        setRedemptionValuePerPoint(Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 0.01);
+      } else {
+        setRedemptionValuePerPoint(0.01);
+      }
     } catch (e) {
       const message =
         e instanceof Error
@@ -119,7 +134,6 @@ export function useAdminData() {
         ? 100
         : 0;
 
-    const redemptionValuePerPoint = 0.01;
     const monetaryLiability = Number((pointsLiability * redemptionValuePerPoint).toFixed(2));
     const liabilityTrend = growthSeries.map((point) => {
       const monthMembers = members.filter((member) => {
@@ -148,7 +162,7 @@ export function useAdminData() {
       monetaryLiability,
       liabilityTrend,
     } satisfies AdminMetrics;
-  }, [members, redemptions, tierRules]);
+  }, [members, redemptions, tierRules, redemptionValuePerPoint]);
 
   return { members, transactions, loading, error, metrics, tierRules, refetch: fetchData };
 }

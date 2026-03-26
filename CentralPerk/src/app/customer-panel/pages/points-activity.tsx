@@ -6,23 +6,40 @@ import { Button } from "../../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Badge } from "../../components/ui/badge";
 import type { AppOutletContext } from "../../types/app-context";
-import { loadMemberActivity } from "../../lib/loyalty-supabase";
 import { emailStatement, generateStatementData } from "../../lib/statement";
 import { toast } from "sonner";
+
+
+function toLocalInputDate(value: Date): string {
+  const year = value.getFullYear();
+  const month = `${value.getMonth() + 1}`.padStart(2, "0");
+  const day = `${value.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 export default function PointsActivity() {
   const { user } = useOutletContext<AppOutletContext>();
   const [filterType, setFilterType] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("date-desc");
   const [page, setPage] = useState(1);
-  const [startDate, setStartDate] = useState<string>(() => new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().slice(0, 10));
-  const [endDate, setEndDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState<string>(() => {
+    const start = new Date();
+    start.setMonth(start.getMonth() - 1);
+    return toLocalInputDate(start);
+  });
+  const [endDate, setEndDate] = useState<string>(() => toLocalInputDate(new Date()));
   const pageSize = 10;
 
   const filteredTransactions = useMemo(
     () =>
       [...user.transactions]
         .filter((t) => (filterType === "all" ? true : t.type === filterType))
+        .filter((t) => {
+          const txDate = new Date(t.date).getTime();
+          const start = startDate ? new Date(`${startDate}T00:00:00`).getTime() : Number.NEGATIVE_INFINITY;
+          const end = endDate ? new Date(`${endDate}T23:59:59`).getTime() : Number.POSITIVE_INFINITY;
+          return txDate >= start && txDate <= end;
+        })
         .sort((a, b) => {
           if (sortBy === "date-desc") return new Date(b.date).getTime() - new Date(a.date).getTime();
           if (sortBy === "date-asc") return new Date(a.date).getTime() - new Date(b.date).getTime();
@@ -30,7 +47,7 @@ export default function PointsActivity() {
           if (sortBy === "points-asc") return a.points - b.points;
           return 0;
         }),
-    [user.transactions, filterType, sortBy]
+    [user.transactions, filterType, sortBy, startDate, endDate]
   );
 
   const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize));
@@ -109,25 +126,35 @@ export default function PointsActivity() {
   };
 
   const downloadCsv = async () => {
-    const activity = await loadMemberActivity(user.memberId, user.email);
-    const rows = [
-      "Date,Type,Points,Reason,Expiry Date",
-      ...activity.history.map((item) => {
-        const date = new Date(item.date).toLocaleDateString();
-        const reason = `"${String(item.reason || "").replaceAll('"', '""')}"`;
-        const expiry = item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : "";
-        return `${date},${item.type},${item.points},${reason},${expiry}`;
-      }),
-    ];
-    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `points-statement-${user.memberId}-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    try {
+      const statement = await generateStatementData({
+        memberId: user.memberId,
+        memberEmail: user.email,
+        startDate,
+        endDate,
+      });
+      const rows = [
+        "Date,Type,Points,Reason,Expiry Date",
+        ...statement.rows.map((item) => {
+          const date = new Date(item.date).toLocaleDateString();
+          const reason = `"${String(item.reason || "").replaceAll('"', '""')}"`;
+          const expiry = item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : "";
+          return `${date},${item.type},${item.points},${reason},${expiry}`;
+        }),
+      ];
+      const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `points-statement-${user.memberId}-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success("CSV downloaded successfully.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to download CSV.");
+    }
   };
 
   const buildStatementHtml = async () => {
@@ -179,14 +206,19 @@ export default function PointsActivity() {
   };
 
   const downloadPdf = async () => {
-    const { html } = await buildStatementHtml();
+    try {
+      const { html } = await buildStatementHtml();
 
-    const win = window.open("", "_blank", "width=900,height=700");
-    if (!win) return;
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    win.print();
+      const win = window.open("", "_blank", "width=900,height=700");
+      if (!win) throw new Error("Popup blocked. Allow popups to print your PDF.");
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      win.print();
+      toast.success("PDF ready. Print dialog opened.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to generate PDF.");
+    }
   };
 
   const handleEmailStatement = async () => {
@@ -352,6 +384,7 @@ export default function PointsActivity() {
                 <Badge className={getTypeColor(transaction.type)} variant="outline">
                   {transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
                 </Badge>
+                <p className="text-xs text-gray-500 mt-1">Balance after: {transaction.balance.toLocaleString()}</p>
               </div>
             </div>
           ))}

@@ -7,17 +7,21 @@ import { ThemeInitializer } from ".././components/theme-initializer";
 import { Toaster } from "../components/ui/sonner";
 import type { AppOutletContext } from "../types/app-context";
 import { loadMemberSnapshot } from "../lib/loyalty-supabase";
+import { loadUserNotifications, type AppNotification } from "../lib/notifications";
 
 import { supabase } from "../../utils/supabase/client";
 import { clearStoredAuth } from "../auth/auth";
 
 const USER_STORAGE_KEY = "points-dashboard-user-v1";
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+
 
 const DEFAULT_MEMBER: MemberData = {
   memberId: "",
   fullName: "Member",
   email: "",
   phone: "",
+  birthdate: "",
   profileImage:
     "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=300&q=80",
   tier: "Bronze",
@@ -62,6 +66,7 @@ export default function Root() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [user, setUser] = useState<MemberData>(loadUser);
   const [completedTaskIds, setCompletedTaskIds] = useState<string[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -81,7 +86,25 @@ export default function Root() {
 
   useEffect(() => {
     refreshUser().catch(() => {});
+    loadUserNotifications().then(setNotifications).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("customer-notifications")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "notification_outbox" },
+        () => {
+          loadUserNotifications().then(setNotifications).catch(() => {});
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   useEffect(() => {
@@ -97,6 +120,26 @@ export default function Root() {
     { name: "Rewards", href: `${basePath}/rewards`, icon: Award },
     { name: "Profile", href: `${basePath}/profile`, icon: User },
   ];
+
+  useEffect(() => {
+    let timeoutRef: ReturnType<typeof setTimeout>;
+
+    const resetTimer = () => {
+      clearTimeout(timeoutRef);
+      timeoutRef = setTimeout(() => {
+        handleLogout().catch(() => {});
+      }, IDLE_TIMEOUT_MS);
+    };
+
+    const events: (keyof WindowEventMap)[] = ["mousemove", "keydown", "click", "scroll", "touchstart"];
+    events.forEach((eventName) => window.addEventListener(eventName, resetTimer, { passive: true }));
+    resetTimer();
+
+    return () => {
+      clearTimeout(timeoutRef);
+      events.forEach((eventName) => window.removeEventListener(eventName, resetTimer));
+    };
+  }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -126,9 +169,9 @@ export default function Root() {
               aria-label="Notifications"
             >
               <Bell className="w-5 h-5 text-[#1A2B47]" />
-              {user.expiringPoints > 0 ? (
+              {notifications.length > 0 ? (
                 <span className="absolute -top-0.5 -right-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#00A3AD] px-1 text-[10px] font-bold text-white">
-                  1
+                  {Math.min(notifications.length, 9)}
                 </span>
               ) : null}
             </button>
@@ -234,9 +277,9 @@ export default function Root() {
               aria-label="Notifications"
             >
               <Bell className="h-5 w-5 text-[#1A2B47]" />
-              {user.expiringPoints > 0 ? (
+              {notifications.length > 0 ? (
                 <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#00A3AD] px-1 text-[10px] font-bold text-white">
-                  1
+                  {Math.min(notifications.length, 9)}
                 </span>
               ) : null}
             </button>
@@ -245,8 +288,9 @@ export default function Root() {
           {notifOpen ? (
             <div className="mb-4 lg:absolute lg:right-8 lg:top-20 z-50 w-full max-w-sm rounded-xl border border-gray-200 bg-white p-3 shadow-lg">
               <p className="mb-2 text-sm font-semibold text-[#1A2B47]">Notifications</p>
-              {user.expiringPoints > 0 ? (
-                <div className="rounded-lg border border-[#00A3AD]/35 bg-[#e6f8fa] p-3">
+              {user.expiringPoints > 0 || notifications.length > 0 ? (
+                <div className="space-y-2">
+                  {user.expiringPoints > 0 ? <div className="rounded-lg border border-[#00A3AD]/35 bg-[#e6f8fa] p-3">
                   <div className="flex items-start gap-2">
                     <Clock3 className="h-4 w-4 mt-0.5 text-[#1A2B47]" />
                     <div>
@@ -261,6 +305,15 @@ export default function Root() {
                   >
                     Redeem now
                   </NavLink>
+                  </div> : null}
+
+                  {notifications.slice(0, 5).map((item) => (
+                    <div key={item.id} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                      <p className="text-sm font-semibold text-[#1A2B47]">{item.subject}</p>
+                      <p className="text-xs text-gray-600 mt-1">{item.message}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">{new Date(item.createdAt).toLocaleString()}</p>
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <p className="text-sm text-gray-500">No new notifications.</p>
@@ -286,5 +339,4 @@ export default function Root() {
     </div>
   );
 }
-
 

@@ -37,14 +37,14 @@ function getTxDateValue(tx: AnyRecord): string {
   return String(tx.transaction_date ?? tx.created_at ?? new Date().toISOString());
 }
 
-function getTierCap(rules: TierRule[]): number {
-  return Math.max(0, ...rules.map((r) => Number(r.min_points) || 0));
+function sanitizePointsBalance(value: unknown): number {
+  return Math.max(0, Math.floor(Number(value) || 0));
 }
 
 const WELCOME_PACKAGE_REASON = "Welcome Package Bonus";
 const WELCOME_PACKAGE_POINTS = 100;
 
-type EarningRule = {
+export type EarningRule = {
   tier_label: SupportedTier;
   peso_per_point: number;
   multiplier: number;
@@ -63,9 +63,8 @@ async function grantWelcomePackageForMember(member: AnyRecord, memberPk: { key: 
   if (existingWelcomeRes.data) return { granted: false, pointsAdded: 0 };
 
   const rules = await fetchTierRules();
-  const tierCap = getTierCap(rules);
-  const currentBalance = Math.min(tierCap, Number(member.points_balance ?? 0));
-  const newBalance = Math.min(tierCap, currentBalance + WELCOME_PACKAGE_POINTS);
+  const currentBalance = sanitizePointsBalance(member.points_balance ?? 0);
+  const newBalance = currentBalance + WELCOME_PACKAGE_POINTS;
   const newTier = resolveTier(newBalance, rules);
 
   const insertRes = await supabase.from("loyalty_transactions").insert({
@@ -115,9 +114,8 @@ async function processMemberExpiredPoints(memberPk: { key: string; value: any })
   if (memberErr) throw memberErr;
 
   const rules = await fetchTierRules();
-  const tierCap = getTierCap(rules);
-  const currentBalance = Math.min(tierCap, Number(memberNow?.points_balance ?? 0));
-  const newBalance = Math.min(tierCap, Math.max(0, currentBalance - totalExpired));
+  const currentBalance = sanitizePointsBalance(memberNow?.points_balance ?? 0);
+  const newBalance = Math.max(0, currentBalance - totalExpired);
   const newTier = resolveTier(newBalance, rules);
 
   const insertRes = await supabase.from("loyalty_transactions").insert({
@@ -168,6 +166,63 @@ export async function saveTierRules(rules: TierRule[]): Promise<void> {
 
   const { error } = await supabase.from("points_rules").upsert(updates, { onConflict: "tier_label" });
   if (error) throw error;
+}
+
+
+export async function fetchActiveEarningRules(): Promise<EarningRule[]> {
+  const { data, error } = await supabase
+    .from("earning_rules")
+    .select("tier_label,peso_per_point,multiplier,is_active,effective_at")
+    .eq("is_active", true)
+    .order("effective_at", { ascending: false });
+
+  if (error || !data || data.length === 0) {
+    return [
+      { tier_label: "Bronze", peso_per_point: 10, multiplier: 1, is_active: true },
+      { tier_label: "Silver", peso_per_point: 10, multiplier: 1.25, is_active: true },
+      { tier_label: "Gold", peso_per_point: 10, multiplier: 1.5, is_active: true },
+    ];
+  }
+
+  const latestByTier = new Map<SupportedTier, EarningRule>();
+  for (const row of data as AnyRecord[]) {
+    const tier = normalizeTierLabel(String(row.tier_label)) as SupportedTier;
+    if (latestByTier.has(tier)) continue;
+    latestByTier.set(tier, {
+      tier_label: tier,
+      peso_per_point: Number(row.peso_per_point || 10),
+      multiplier: Number(row.multiplier || 1),
+      is_active: Boolean(row.is_active ?? true),
+    });
+  }
+
+  return (["Bronze", "Silver", "Gold"] as SupportedTier[]).map((tier) =>
+    latestByTier.get(tier) || { tier_label: tier, peso_per_point: 10, multiplier: 1, is_active: true }
+  );
+}
+
+export async function saveEarningRules(rules: EarningRule[]): Promise<void> {
+  for (const rawRule of rules) {
+    const tier = normalizeTierLabel(rawRule.tier_label) as SupportedTier;
+    const pesoPerPoint = Math.max(0.01, Number(rawRule.peso_per_point) || 10);
+    const multiplier = Math.max(0.01, Number(rawRule.multiplier) || 1);
+
+    const { error: deactivateError } = await supabase
+      .from("earning_rules")
+      .update({ is_active: false })
+      .eq("tier_label", tier)
+      .eq("is_active", true);
+    if (deactivateError) throw deactivateError;
+
+    const { error: insertError } = await supabase.from("earning_rules").insert({
+      tier_label: tier,
+      peso_per_point: pesoPerPoint,
+      multiplier,
+      is_active: true,
+      effective_at: new Date().toISOString(),
+    });
+    if (insertError) throw insertError;
+  }
 }
 
 async function fetchEarningRuleForTier(tier: SupportedTier): Promise<EarningRule> {
@@ -308,8 +363,7 @@ export async function loadMemberSnapshot(currentUser: MemberData): Promise<Parti
     .limit(1)
     .maybeSingle();
   const refreshedMember = (refreshedMemberRes.data as AnyRecord | null) ?? member;
-  const tierCap = getTierCap(rules);
-  const currentBalance = Math.min(tierCap, Number(refreshedMember.points_balance ?? currentUser.points ?? 0));
+  const currentBalance = sanitizePointsBalance(refreshedMember.points_balance ?? currentUser.points ?? 0);
 
   const txRes = await supabase
     .from("loyalty_transactions")
@@ -369,7 +423,7 @@ export async function loadMemberSnapshot(currentUser: MemberData): Promise<Parti
       (tx) => mapTxType(String(tx.transaction_type ?? "")) === "earned" && Number(tx.points || 0) > 0
     )
     .reduce((sum, tx) => sum + Number(tx.points || 0), 0);
-  const lifetimePoints = Math.min(rawLifetimePoints, tierCap);
+  const lifetimePoints = rawLifetimePoints;
 
   const upcomingExpiring = rawTx.filter((tx) => {
     if (!tx.expiry_date) return false;
@@ -398,6 +452,7 @@ export async function loadMemberSnapshot(currentUser: MemberData): Promise<Parti
     fullName: `${refreshedMember.first_name || ""} ${refreshedMember.last_name || ""}`.trim() || currentUser.fullName,
     email: String(refreshedMember.email || currentUser.email),
     phone: String(refreshedMember.phone || currentUser.phone),
+    birthdate: refreshedMember.birthdate ? String(refreshedMember.birthdate) : String(currentUser.birthdate || ""),
     address: String(refreshedMember.address || currentUser.address || ""),
     profileImage: String(refreshedMember.profile_photo_url || currentUser.profileImage || ""),
     memberSince: refreshedMember.enrollment_date
@@ -472,15 +527,14 @@ export async function awardMemberPoints(input: {
   if (!pk) throw new Error("Member primary key is missing.");
 
   const rules = await fetchTierRules();
-  const tierCap = getTierCap(rules);
-  const currentBalance = Math.min(tierCap, Number(member.points_balance ?? 0));
+  const currentBalance = sanitizePointsBalance(member.points_balance ?? 0);
   let pointsToAdd = Math.max(0, Math.floor(input.points));
   const memberTier = normalizeTierLabel(String(member.tier || "Bronze")) as SupportedTier;
   if (input.transactionType === "PURCHASE") {
     const purchaseAmount = Number(input.amountSpent || 0);
     pointsToAdd = await calculateDynamicPurchasePoints({ amountSpent: purchaseAmount, tier: memberTier });
   }
-  const newBalance = Math.min(tierCap, currentBalance + pointsToAdd);
+  const newBalance = currentBalance + pointsToAdd;
   const newTier = resolveTier(newBalance, rules);
 
   const txPayload: AnyRecord = {
@@ -519,13 +573,11 @@ export async function redeemMemberPoints(input: {
   if (!pk) throw new Error("Member primary key is missing.");
 
   const rules = await fetchTierRules();
-  const tierCap = getTierCap(rules);
-  const currentBalance = Number(member.points_balance ?? 0);
-  const boundedCurrentBalance = Math.min(tierCap, currentBalance);
+  const currentBalance = sanitizePointsBalance(member.points_balance ?? 0);
   const pointsToDeduct = Math.max(0, Math.floor(input.points));
-  if (pointsToDeduct > boundedCurrentBalance) throw new Error("Not enough points.");
+  if (pointsToDeduct > currentBalance) throw new Error("Not enough points.");
 
-  const newBalance = Math.min(tierCap, Math.max(0, boundedCurrentBalance - pointsToDeduct));
+  const newBalance = Math.max(0, currentBalance - pointsToDeduct);
   const newTier = resolveTier(newBalance, rules);
 
   const insertRes = await supabase.from("loyalty_transactions").insert({
@@ -558,28 +610,63 @@ export async function updateMemberProfile(input: {
   lastName: string;
   email: string;
   phone: string;
+  birthdate?: string;
   address?: string;
   profilePhotoUrl?: string;
 }) {
   const member = await findMember(input.memberIdentifier, input.fallbackEmail);
-  if (!member) throw new Error("Member not found in loyalty_members.");
-  const pk = getMemberPk(member);
-  if (!pk) throw new Error("Member primary key is missing.");
+  if (!member) {
+    throw new Error("Member not found in loyalty_members.");
+  }
+
+  const authRes = await supabase.auth.getUser();
+  if (authRes.error) throw authRes.error;
+
+  const authEmail = authRes.data.user?.email;
+  if (!authEmail) {
+    throw new Error("Unable to update profile: no authenticated user email found.");
+  }
+
+  const normalizedAuthEmail = authEmail.trim().toLowerCase();
+  const normalizedNewEmail = input.email.trim().toLowerCase();
+  const emailChanged = normalizedNewEmail !== normalizedAuthEmail;
+
+  let persistedAuthEmail = normalizedAuthEmail;
+  let pendingEmailVerification = false;
+
+  if (emailChanged) {
+    const authUpdate = await supabase.auth.updateUser({ email: normalizedNewEmail });
+    if (authUpdate.error) {
+      throw new Error(`Unable to update auth email: ${authUpdate.error.message}`);
+    }
+
+    const authUserEmail = String(authUpdate.data.user?.email || normalizedAuthEmail).trim().toLowerCase();
+    persistedAuthEmail = authUserEmail;
+    pendingEmailVerification = authUserEmail !== normalizedNewEmail;
+  }
 
   const updateRes = await supabase
     .from("loyalty_members")
     .update({
       first_name: input.firstName,
       last_name: input.lastName,
-      email: input.email,
+      email: persistedAuthEmail,
       phone: input.phone,
+      birthdate: input.birthdate || null,
       address: input.address ?? null,
       profile_photo_url: input.profilePhotoUrl ?? null,
     })
-    .eq(pk.key, pk.value);
+    .eq("id", Number(member.id))
+    .select("id,email");
   if (updateRes.error) throw updateRes.error;
+  if (!updateRes.data?.length) throw new Error("Member not found in loyalty_members.");
 
-  return { success: true };
+  return {
+    success: true,
+    emailChanged,
+    pendingEmailVerification,
+    effectiveEmail: String(updateRes.data[0].email || persistedAuthEmail),
+  };
 }
 
 export async function uploadMemberProfilePhoto(memberIdentifier: string, file: File): Promise<string> {

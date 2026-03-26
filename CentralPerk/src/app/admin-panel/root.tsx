@@ -1,8 +1,11 @@
 import { Activity, Award, Bell, Home, LogOut, Menu, Settings, Users, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { cn } from "../components/ui/utils";
 import { supabase } from "../../utils/supabase/client";
+import { loadUserNotifications, type AppNotification } from "../lib/notifications";
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+
 
 const navItems = [
   { to: "/admin", label: "Dashboard", icon: Home, end: true },
@@ -16,6 +19,48 @@ export default function AdminRoot() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+
+
+
+  useEffect(() => {
+    loadUserNotifications().then(setNotifications).catch(() => {});
+
+    const channel = supabase
+      .channel("admin-notifications")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "notification_outbox" },
+        () => {
+          loadUserNotifications().then(setNotifications).catch(() => {});
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  useEffect(() => {
+    let timeoutRef: ReturnType<typeof setTimeout>;
+
+    const resetTimer = () => {
+      clearTimeout(timeoutRef);
+      timeoutRef = setTimeout(() => {
+        handleLogout().catch(() => {});
+      }, IDLE_TIMEOUT_MS);
+    };
+
+    const events: (keyof WindowEventMap)[] = ["mousemove", "keydown", "click", "scroll", "touchstart"];
+    events.forEach((eventName) => window.addEventListener(eventName, resetTimer, { passive: true }));
+    resetTimer();
+
+    return () => {
+      clearTimeout(timeoutRef);
+      events.forEach((eventName) => window.removeEventListener(eventName, resetTimer));
+    };
+  }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -45,6 +90,11 @@ export default function AdminRoot() {
               aria-label="Notifications"
             >
               <Bell className="w-5 h-5 text-[#1A2B47]" />
+              {notifications.length > 0 ? (
+                <span className="absolute -top-0.5 -right-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#00A3AD] px-1 text-[10px] font-bold text-white">
+                  {Math.min(notifications.length, 9)}
+                </span>
+              ) : null}
             </button>
             <button
               onClick={() => setSidebarOpen((s) => !s)}
@@ -146,13 +196,29 @@ export default function AdminRoot() {
               aria-label="Notifications"
             >
               <Bell className="h-5 w-5 text-[#1A2B47]" />
+              {notifications.length > 0 ? (
+                <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#00A3AD] px-1 text-[10px] font-bold text-white">
+                  {Math.min(notifications.length, 9)}
+                </span>
+              ) : null}
             </button>
           </div>
 
           {notifOpen ? (
             <div className="mb-4 lg:absolute lg:right-8 lg:top-20 z-50 w-full max-w-sm rounded-xl border border-[#9ed8ff] bg-[#f8fcff] p-3 shadow-lg">
               <p className="mb-2 text-sm font-semibold text-[#1A2B47]">Notifications</p>
-              <p className="text-sm text-gray-500">No new notifications.</p>
+              {notifications.length === 0 ? (
+                <p className="text-sm text-gray-500">No new notifications.</p>
+              ) : (
+                <div className="space-y-2">
+                  {notifications.slice(0, 5).map((item) => (
+                    <div key={item.id} className="rounded-lg border border-gray-200 bg-white p-2">
+                      <p className="text-sm font-semibold text-[#1A2B47]">{item.subject}</p>
+                      <p className="text-xs text-gray-600 mt-1">{item.message}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : null}
 
